@@ -27,6 +27,7 @@ typedef enum
     GolfScoreViewAbout = 2,
     GolfScoreViewSettings = 3,
     GolfScoreViewTextInput = 4,
+    GolfScoreViewParSettings = 5,
 } GolfScoreView;
 
 class GolfScoreScorecard;
@@ -100,5 +101,6 @@ public:
     void toggleHoleCount();
     void setHoleCount(uint8_t count);
     void setPlayerName(uint8_t index, const char *name);
+    void setPar(uint8_t hole, uint8_t value);
     void requestCanvasRefresh();
 };

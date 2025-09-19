@@ -16,6 +16,7 @@ GolfScoreSettings::GolfScoreSettings(ViewDispatcher **view_dispatcher, void *app
     variable_item_player_count = variable_item_list_add(variable_item_list, "Players", 1, nullptr, nullptr);
     variable_item_hole_count = variable_item_list_add(variable_item_list, "Holes", 1, nullptr, nullptr);
     variable_item_reset = variable_item_list_add(variable_item_list, "Reset Round", 1, nullptr, nullptr);
+    variable_item_par_overview = variable_item_list_add(variable_item_list, "Hole Pars", 1, nullptr, nullptr);
 
     for (uint8_t i = 0; i < GolfScoreMaxPlayers; ++i)
     {
@@ -38,10 +39,24 @@ GolfScoreSettings::~GolfScoreSettings()
         variable_item_list = nullptr;
     }
 
+    if (par_variable_item_list && view_dispatcher_ref && *view_dispatcher_ref)
+    {
+        view_dispatcher_remove_view(*view_dispatcher_ref, GolfScoreViewParSettings);
+        variable_item_list_free(par_variable_item_list);
+        par_variable_item_list = nullptr;
+    }
+
     variable_item_player_count = nullptr;
     variable_item_hole_count = nullptr;
     variable_item_reset = nullptr;
+    variable_item_par_overview = nullptr;
     variable_item_player_names.fill(nullptr);
+    par_item_hole_selector = nullptr;
+    par_item_value = nullptr;
+    par_hole_label.fill('\0');
+    par_value_label.fill('\0');
+    par_summary_text.fill('\0');
+    selected_par_hole = 0;
 }
 
 uint32_t GolfScoreSettings::callbackToSettings(void *context)
@@ -175,6 +190,16 @@ void GolfScoreSettings::settingsItemSelected(uint32_t index)
         easy_flipper_dialog("Scores Reset", "All player strokes cleared.");
         refreshValueTexts();
         break;
+    case SettingsViewPars:
+        if (view_dispatcher_ref && *view_dispatcher_ref)
+        {
+            if (ensureParList())
+            {
+                refreshParValues();
+                view_dispatcher_switch_to_view(*view_dispatcher_ref, GolfScoreViewParSettings);
+            }
+        }
+        break;
     case SettingsViewPlayerName1:
     case SettingsViewPlayerName2:
     case SettingsViewPlayerName3:
@@ -277,6 +302,8 @@ void GolfScoreSettings::refreshValueTexts()
         variable_item_set_current_value_text(variable_item_reset, "Select to clear");
     }
 
+    updateParSummary();
+
     for (uint8_t i = 0; i < GolfScoreMaxPlayers; ++i)
     {
         if (!variable_item_player_names[i])
@@ -296,6 +323,66 @@ void GolfScoreSettings::refreshValueTexts()
             variable_item_set_current_value_text(variable_item_player_names[i], inactive);
         }
     }
+
+    if (par_variable_item_list)
+    {
+        refreshParValues();
+    }
+}
+
+void GolfScoreSettings::refreshParValues()
+{
+    if (!par_variable_item_list)
+    {
+        return;
+    }
+
+    updateParEditorDisplay();
+}
+
+bool GolfScoreSettings::ensureParList()
+{
+    if (par_variable_item_list)
+    {
+        return true;
+    }
+
+    if (!easy_flipper_set_variable_item_list(&par_variable_item_list, GolfScoreViewParSettings,
+                                             nullptr, callbackToSettings, view_dispatcher_ref, this))
+    {
+        return false;
+    }
+
+    par_hole_context.settings = this;
+    par_hole_context.hole_selector = true;
+    par_value_context.settings = this;
+    par_value_context.hole_selector = false;
+
+    par_item_hole_selector = variable_item_list_add(par_variable_item_list, "Hole", 1, parHoleSelectorChangedCallback, &par_hole_context);
+    par_item_value = variable_item_list_add(par_variable_item_list, "Par", HoleParOptionCount, parValueChangedCallback, &par_value_context);
+
+    updateParEditorDisplay();
+
+    return true;
+}
+
+void GolfScoreSettings::updateParSummary()
+{
+    if (!variable_item_par_overview)
+    {
+        return;
+    }
+
+    GolfScoreApp *app = static_cast<GolfScoreApp *>(appContext);
+    if (!app)
+    {
+        return;
+    }
+
+    uint8_t hole_count = app->getHoleCount();
+    uint16_t course_par = app->getCoursePar();
+    snprintf(par_summary_text.data(), par_summary_text.size(), "%u holes, par %u", static_cast<unsigned>(hole_count), static_cast<unsigned>(course_par));
+    variable_item_set_current_value_text(variable_item_par_overview, par_summary_text.data());
 }
 
 void GolfScoreSettings::textUpdatedPlayer0Callback(void *context)
@@ -332,4 +419,147 @@ void GolfScoreSettings::textUpdatedPlayer3Callback(void *context)
     {
         settings->textUpdated(SettingsViewPlayerName4);
     }
+}
+
+void GolfScoreSettings::parHoleSelectorChangedCallback(VariableItem *item)
+{
+    if (!item)
+    {
+        return;
+    }
+
+    auto *context = static_cast<ParItemContext *>(variable_item_get_context(item));
+    if (!context || !context->settings || !context->hole_selector)
+    {
+        return;
+    }
+
+    context->settings->parHoleSelectorChanged(item);
+}
+
+void GolfScoreSettings::parHoleSelectorChanged(VariableItem *item)
+{
+    GolfScoreApp *app = static_cast<GolfScoreApp *>(appContext);
+    if (!app)
+    {
+        return;
+    }
+
+    uint8_t hole_count = app->getHoleCount();
+    if (hole_count == 0)
+    {
+        hole_count = 1;
+    }
+
+    uint8_t index = variable_item_get_current_value_index(item);
+    if (index >= hole_count)
+    {
+        index = static_cast<uint8_t>(hole_count - 1);
+    }
+
+    selected_par_hole = index;
+    updateParEditorDisplay();
+}
+
+void GolfScoreSettings::parValueChangedCallback(VariableItem *item)
+{
+    if (!item)
+    {
+        return;
+    }
+
+    auto *context = static_cast<ParItemContext *>(variable_item_get_context(item));
+    if (!context || !context->settings || context->hole_selector)
+    {
+        return;
+    }
+
+    context->settings->parValueChanged(item);
+}
+
+void GolfScoreSettings::parValueChanged(VariableItem *item)
+{
+    if (suppress_par_updates)
+    {
+        return;
+    }
+
+    GolfScoreApp *app = static_cast<GolfScoreApp *>(appContext);
+    if (!app)
+    {
+        return;
+    }
+
+    uint8_t index = variable_item_get_current_value_index(item);
+    if (index >= HoleParOptionCount)
+    {
+        index = static_cast<uint8_t>(HoleParOptionCount - 1);
+    }
+
+    uint8_t par = indexToPar(index);
+    app->setPar(selected_par_hole, par);
+    updateParEditorDisplay();
+    updateParSummary();
+}
+
+void GolfScoreSettings::updateParEditorDisplay()
+{
+    if (!par_item_hole_selector || !par_item_value)
+    {
+        return;
+    }
+
+    GolfScoreApp *app = static_cast<GolfScoreApp *>(appContext);
+    if (!app)
+    {
+        return;
+    }
+
+    uint8_t hole_count = app->getHoleCount();
+    if (hole_count == 0)
+    {
+        hole_count = 1;
+    }
+    if (selected_par_hole >= hole_count)
+    {
+        selected_par_hole = static_cast<uint8_t>(hole_count - 1);
+    }
+
+    bool restore_flag = suppress_par_updates;
+    suppress_par_updates = true;
+
+    variable_item_set_values_count(par_item_hole_selector, hole_count);
+    variable_item_set_current_value_index(par_item_hole_selector, selected_par_hole);
+    snprintf(par_hole_label.data(), par_hole_label.size(), "Hole %u/%u", static_cast<unsigned>(selected_par_hole + 1), static_cast<unsigned>(hole_count));
+    variable_item_set_current_value_text(par_item_hole_selector, par_hole_label.data());
+
+    uint8_t par = app->getPar(selected_par_hole);
+    uint8_t par_index = parToIndex(par);
+    variable_item_set_current_value_index(par_item_value, par_index);
+    snprintf(par_value_label.data(), par_value_label.size(), "%u", static_cast<unsigned>(par));
+    variable_item_set_current_value_text(par_item_value, par_value_label.data());
+
+    suppress_par_updates = restore_flag;
+}
+
+uint8_t GolfScoreSettings::parToIndex(uint8_t par) const
+{
+    if (par < GolfScoreMinPar)
+    {
+        par = GolfScoreMinPar;
+    }
+    else if (par > GolfScoreMaxPar)
+    {
+        par = GolfScoreMaxPar;
+    }
+    return static_cast<uint8_t>(par - GolfScoreMinPar);
+}
+
+uint8_t GolfScoreSettings::indexToPar(uint8_t index) const
+{
+    if (index >= HoleParOptionCount)
+    {
+        index = static_cast<uint8_t>(HoleParOptionCount - 1);
+    }
+    return static_cast<uint8_t>(GolfScoreMinPar + index);
 }

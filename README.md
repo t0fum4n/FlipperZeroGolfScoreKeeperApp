@@ -4,13 +4,25 @@ Keep golf scores for up to four players on the Flipper Zero.
 ## Features
 - Quick score adjustment with the D-pad (Up/Down to change strokes, Left/Right to change holes)
 - Track 9 or 18 hole rounds and see totals plus relation to par
+- Customize each hole's par from the Round Setup menu
 - Rename players and reset rounds from the Round Setup menu
 - Clean GolfScore code structure (`app.cpp`, `scorecard/scorecard.cpp`, `settings/settings.cpp`)
 
 ## Usage
-1. Open the app and choose **Round Setup** to pick player count, hole count, or rename players.
-2. Select **Scorecard** to track the current round. Press **OK** to switch between players.
-3. Long-press **OK** on a hole to clear the recorded strokes for that player and hole.
+1. Open the app and choose **Round Setup**.
+   - **Players** cycles between 1‑4 golfers.
+   - **Holes** toggles 9 or 18 hole rounds.
+   - **Reset Round** clears every recorded stroke.
+   - **Hole Pars** opens the par editor. Use the `Hole` item to pick a hole, then adjust the `Par` item with Up/Down. Press **Back** to return.
+   - Select a player name entry to rename that golfer (on-device keyboard or UART, depending on firmware).
+2. Choose **Scorecard** to track play:
+   - Up/Down change strokes for the highlighted golfer on the current hole.
+   - Left/Right move between holes.
+   - **OK** switches to the next golfer; long-press **OK** clears that player’s score for the current hole.
+3. The scorecard line shows `Name  H#  Tot##  +/-`:
+   - `H` displays strokes on the current hole (or `--` if none yet).
+   - `Tot` is the total strokes across all played holes.
+   - The final column is relation to par (`E`, `+`/`-`, or `--` if no holes played).
 
 ## Notes
 - Scores and player names are stored under `/ext/apps_data/golf_score/data/state.bin`.

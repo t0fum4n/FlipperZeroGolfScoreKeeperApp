@@ -176,7 +176,7 @@ void GolfScoreApp::applyDefaults()
         scores.fill(0);
     }
 
-    state.par.fill(4);
+    state.par.fill(GolfScoreDefaultPar);
 
     for (uint8_t i = 0; i < MaxPlayers; ++i)
     {
@@ -213,9 +213,10 @@ void GolfScoreApp::loadState()
 
     for (size_t hole = 0; hole < MaxHoles; ++hole)
     {
-        if (state.par[hole] == 0)
+        uint8_t par = state.par[hole];
+        if (par < GolfScoreMinPar || par > GolfScoreMaxPar)
         {
-            state.par[hole] = 4;
+            state.par[hole] = GolfScoreDefaultPar;
         }
     }
 
@@ -452,11 +453,16 @@ int16_t GolfScoreApp::getRelativeToPar(uint8_t player) const
 
 uint8_t GolfScoreApp::getPar(uint8_t hole) const
 {
-    if (hole >= MaxHoles || hole >= state.holeCount)
+    if (hole >= MaxHoles)
     {
         return 0;
     }
-    return state.par[hole];
+    uint8_t par = state.par[hole];
+    if (par < GolfScoreMinPar || par > GolfScoreMaxPar)
+    {
+        return GolfScoreDefaultPar;
+    }
+    return par;
 }
 
 uint16_t GolfScoreApp::getCoursePar() const
@@ -581,6 +587,26 @@ void GolfScoreApp::setPlayerName(uint8_t index, const char *name)
     }
 
     ensureName(index);
+    saveState();
+    requestCanvasRefresh();
+}
+
+void GolfScoreApp::setPar(uint8_t hole, uint8_t value)
+{
+    if (hole >= MaxHoles)
+    {
+        return;
+    }
+
+    int clamped = std::clamp<int>(static_cast<int>(value), static_cast<int>(GolfScoreMinPar), static_cast<int>(GolfScoreMaxPar));
+    uint8_t par_value = static_cast<uint8_t>(clamped);
+
+    if (state.par[hole] == par_value)
+    {
+        return;
+    }
+
+    state.par[hole] = par_value;
     saveState();
     requestCanvasRefresh();
 }
