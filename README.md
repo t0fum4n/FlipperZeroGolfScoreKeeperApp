@@ -31,6 +31,13 @@ Keep golf scores for up to four players on the Flipper Zero.
    - `Tot` is the total strokes across all played holes.
    - The final column is relation to par (`E`, `+`/`-`, or `--` if no holes played).
 
+## Screenshots
+
+![Splash screen](screenshots/splash.png)
+![Home menu](screenshots/home.png)
+![Settings menu](screenshots/settings.png)
+![Round summary](screenshots/round.png)
+
 ## Notes
 - Scores and player names are stored under `/ext/apps_data/golf_score/data/state.bin`.
 - Saved round history is appended to `/ext/apps_data/golf_score/data/rounds.csv` in CSV format as `Date,Time,Course,HoleCount,Player,Total,Relative,H1..H18` (one row per player).
