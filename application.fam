@@ -1,0 +1,13 @@
+App(
+    appid="golf_score",
+    name="Golf Scorecard",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="golf_score_main",
+    stack_size=4 * 1024,
+    fap_icon="app.png",
+    fap_category="Tools",
+    fap_description="Keep golf scores for up to four players.", 
+    fap_author="thodges",
+    fap_weburl="https://flipperzero.one",
+    fap_version="1.0.0",
+)
