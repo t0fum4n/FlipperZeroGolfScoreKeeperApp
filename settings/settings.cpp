@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <furi/core/string.h>
 
 GolfScoreSettings::GolfScoreSettings(ViewDispatcher **view_dispatcher, void *appContext) : appContext(appContext), view_dispatcher_ref(view_dispatcher)
 {
@@ -20,6 +21,9 @@ GolfScoreSettings::GolfScoreSettings(ViewDispatcher **view_dispatcher, void *app
     variable_item_load_course = variable_item_list_add(variable_item_list, "Load Course", 1, nullptr, nullptr);
     variable_item_save_course = variable_item_list_add(variable_item_list, "Save Course", 1, nullptr, nullptr);
     variable_item_delete_course = variable_item_list_add(variable_item_list, "Delete Course", 1, nullptr, nullptr);
+    variable_item_save_round = variable_item_list_add(variable_item_list, "Save Round", 1, nullptr, nullptr);
+    variable_item_view_history = variable_item_list_add(variable_item_list, "View History", 1, nullptr, nullptr);
+    variable_item_clear_history = variable_item_list_add(variable_item_list, "Clear History", 1, nullptr, nullptr);
 
     for (uint8_t i = 0; i < GolfScoreMaxPlayers; ++i)
     {
@@ -56,6 +60,13 @@ GolfScoreSettings::~GolfScoreSettings()
         course_variable_item_list = nullptr;
     }
 
+    if (history_widget && view_dispatcher_ref && *view_dispatcher_ref)
+    {
+        view_dispatcher_remove_view(*view_dispatcher_ref, GolfScoreViewHistory);
+        widget_free(history_widget);
+        history_widget = nullptr;
+    }
+
     variable_item_player_count = nullptr;
     variable_item_hole_count = nullptr;
     variable_item_reset = nullptr;
@@ -63,6 +74,9 @@ GolfScoreSettings::~GolfScoreSettings()
     variable_item_load_course = nullptr;
     variable_item_save_course = nullptr;
     variable_item_delete_course = nullptr;
+    variable_item_save_round = nullptr;
+    variable_item_view_history = nullptr;
+    variable_item_clear_history = nullptr;
     variable_item_player_names.fill(nullptr);
     course_items.fill(nullptr);
     par_item_hole_selector = nullptr;
@@ -231,6 +245,25 @@ void GolfScoreSettings::settingsItemSelected(uint32_t index)
     case SettingsViewDeleteCourse:
         startCourseSelection(CourseSelectionMode::Delete);
         break;
+    case SettingsViewSaveRound:
+    {
+        if (app->exportRoundHistory())
+        {
+            easy_flipper_dialog("Round Saved", "Entry added to history.");
+        }
+        else
+        {
+            easy_flipper_dialog("Save Failed", "Could not save round.");
+        }
+        break;
+    }
+    case SettingsViewViewHistory:
+        showHistory();
+        break;
+    case SettingsViewClearHistory:
+        clearHistory();
+        updateCourseListDisplay();
+        break;
     case SettingsViewPlayerName1:
     case SettingsViewPlayerName2:
     case SettingsViewPlayerName3:
@@ -360,6 +393,23 @@ void GolfScoreSettings::refreshValueTexts()
     if (variable_item_delete_course)
     {
         variable_item_set_current_value_text(variable_item_delete_course, "Select slot");
+    }
+
+    if (variable_item_save_round)
+    {
+        char text[32];
+        snprintf(text, sizeof(text), "%u players", static_cast<unsigned>(app->getPlayerCount()));
+        variable_item_set_current_value_text(variable_item_save_round, text);
+    }
+
+    if (variable_item_view_history)
+    {
+        variable_item_set_current_value_text(variable_item_view_history, "Open log");
+    }
+
+    if (variable_item_clear_history)
+    {
+        variable_item_set_current_value_text(variable_item_clear_history, "Delete log");
     }
 
     for (uint8_t i = 0; i < GolfScoreMaxPlayers; ++i)
@@ -519,6 +569,77 @@ void GolfScoreSettings::updateCourseListDisplay()
         }
 
         variable_item_set_current_value_text(course_items[i], text);
+    }
+}
+
+bool GolfScoreSettings::ensureHistoryWidget()
+{
+    if (history_widget)
+    {
+        return true;
+    }
+
+    return easy_flipper_set_widget(&history_widget, GolfScoreViewHistory, nullptr, callbackToSettings, view_dispatcher_ref);
+}
+
+void GolfScoreSettings::showHistory()
+{
+    if (!view_dispatcher_ref || !*view_dispatcher_ref)
+    {
+        return;
+    }
+
+    if (!ensureHistoryWidget())
+    {
+        easy_flipper_dialog("History", "Unable to open history view.");
+        return;
+    }
+
+    GolfScoreApp *app = static_cast<GolfScoreApp *>(appContext);
+    if (!app)
+    {
+        return;
+    }
+
+    FuriString *history = furi_string_alloc();
+    bool has_history = app->readRoundHistory(history);
+
+    widget_reset(history_widget);
+
+    if (has_history)
+    {
+        widget_add_text_scroll_element(history_widget, 0, 0, 128, 64, furi_string_get_cstr(history));
+    }
+    else
+    {
+        widget_add_text_scroll_element(history_widget, 0, 0, 128, 64, "No saved rounds yet.");
+    }
+
+    furi_string_free(history);
+
+    view_dispatcher_switch_to_view(*view_dispatcher_ref, GolfScoreViewHistory);
+}
+
+void GolfScoreSettings::clearHistory()
+{
+    GolfScoreApp *app = static_cast<GolfScoreApp *>(appContext);
+    if (!app)
+    {
+        return;
+    }
+
+    if (app->clearRoundHistory())
+    {
+        easy_flipper_dialog("Round History", "History cleared.");
+        if (history_widget)
+        {
+            widget_reset(history_widget);
+            widget_add_text_scroll_element(history_widget, 0, 0, 128, 64, "No saved rounds yet.");
+        }
+    }
+    else
+    {
+        easy_flipper_dialog("Round History", "Failed to clear history.");
     }
 }
 

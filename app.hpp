@@ -8,6 +8,8 @@
 #include "easy_flipper/easy_flipper.h"
 #include "golf_score_config.hpp"
 
+struct FuriString;
+
 #define TAG "Golf Score"
 #define VERSION "1.0"
 #define VERSION_TAG TAG " " VERSION
@@ -29,6 +31,7 @@ typedef enum
     GolfScoreViewTextInput = 4,
     GolfScoreViewParSettings = 5,
     GolfScoreViewCourseList = 6,
+    GolfScoreViewHistory = 7,
 } GolfScoreView;
 
 class GolfScoreScorecard;
@@ -121,5 +124,8 @@ public:
     const char *getCourseName(uint8_t index) const;
     uint8_t getCourseHoleCount(uint8_t index) const;
     uint8_t getActiveCourseIndex() const;
+    bool exportRoundHistory() const;
+    bool clearRoundHistory() const;
+    bool readRoundHistory(FuriString *out) const;
     void requestCanvasRefresh();
 };

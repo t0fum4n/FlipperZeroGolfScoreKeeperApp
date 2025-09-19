@@ -17,10 +17,13 @@ typedef enum
     SettingsViewLoadCourse = 4,
     SettingsViewSaveCourse = 5,
     SettingsViewDeleteCourse = 6,
-    SettingsViewPlayerName1 = 7,
-    SettingsViewPlayerName2 = 8,
-    SettingsViewPlayerName3 = 9,
-    SettingsViewPlayerName4 = 10,
+    SettingsViewSaveRound = 7,
+    SettingsViewViewHistory = 8,
+    SettingsViewClearHistory = 9,
+    SettingsViewPlayerName1 = 10,
+    SettingsViewPlayerName2 = 11,
+    SettingsViewPlayerName3 = 12,
+    SettingsViewPlayerName4 = 13,
 } SettingsViewChoice;
 
 class GolfScoreSettings
@@ -43,10 +46,14 @@ private:
     VariableItem *variable_item_load_course = nullptr;
     VariableItem *variable_item_save_course = nullptr;
     VariableItem *variable_item_delete_course = nullptr;
+    VariableItem *variable_item_save_round = nullptr;
+    VariableItem *variable_item_view_history = nullptr;
+    VariableItem *variable_item_clear_history = nullptr;
     VariableItemList *par_variable_item_list = nullptr;
     VariableItem *par_item_hole_selector = nullptr;
     VariableItem *par_item_value = nullptr;
     VariableItemList *course_variable_item_list = nullptr;
+    Widget *history_widget = nullptr;
     std::array<VariableItem *, GolfScoreMaxPlayers> variable_item_player_names{};
     std::array<VariableItem *, GolfScoreMaxCourses> course_items{};
     struct ParItemContext
@@ -84,6 +91,9 @@ private:
     bool ensureCourseList();
     void startCourseSelection(CourseSelectionMode mode);
     void updateCourseListDisplay();
+    bool ensureHistoryWidget();
+    void showHistory();
+    void clearHistory();
     static void textUpdatedPlayer0Callback(void *context);
     static void textUpdatedPlayer1Callback(void *context);
     static void textUpdatedPlayer2Callback(void *context);

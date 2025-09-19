@@ -8,11 +8,15 @@
 #include <cstring>
 
 #include <storage/storage.h>
+#include <furi_hal_rtc.h>
+#include <datetime/datetime.h>
+#include <furi/core/string.h>
 
 namespace
 {
     constexpr uint8_t StateVersion = 2;
     constexpr const char *StateFileName = "state.bin";
+    constexpr const char *HistoryFileName = "rounds.csv";
 
     struct PersistentStateV1
     {
@@ -24,6 +28,33 @@ namespace
         std::array<std::array<uint8_t, GolfScoreApp::MaxHoles>, GolfScoreApp::MaxPlayers> strokes{};
         std::array<uint8_t, GolfScoreApp::MaxHoles> par{};
     };
+
+    void sanitize_csv_field(const char *input, char *output, size_t size)
+    {
+        if (!output || size == 0)
+        {
+            return;
+        }
+
+        if (!input)
+        {
+            output[0] = '\0';
+            return;
+        }
+
+        size_t i = 0;
+        while (input[i] != '\0' && i < size - 1)
+        {
+            char ch = input[i];
+            if (ch == ',' || ch == '\n' || ch == '\r')
+            {
+                ch = ' ';
+            }
+            output[i] = ch;
+            ++i;
+        }
+        output[i] = '\0';
+    }
 }
 
 GolfScoreApp::GolfScoreApp()
@@ -785,6 +816,208 @@ uint8_t GolfScoreApp::getCourseHoleCount(uint8_t index) const
 uint8_t GolfScoreApp::getActiveCourseIndex() const
 {
     return state.activeCourse;
+}
+
+bool GolfScoreApp::exportRoundHistory() const
+{
+    Storage *storage = static_cast<Storage *>(furi_record_open(RECORD_STORAGE));
+    if (!storage)
+    {
+        return false;
+    }
+
+    File *file = storage_file_alloc(storage);
+    if (!file)
+    {
+        furi_record_close(RECORD_STORAGE);
+        return false;
+    }
+
+    char path[256];
+    snprintf(path, sizeof(path), STORAGE_EXT_PATH_PREFIX "/apps_data/%s/data/%s", APP_ID, HistoryFileName);
+
+    bool result = false;
+    if (storage_file_open(file, path, FSAM_WRITE, FSOM_OPEN_APPEND))
+    {
+        uint64_t existing_size = storage_file_size(file);
+        if (existing_size == 0)
+        {
+            FuriString *header = furi_string_alloc();
+            furi_string_printf(header, "Date,Time,Course,HoleCount,Player,Total,Relative");
+            for (uint8_t hole = 0; hole < MaxHoles; ++hole)
+            {
+                furi_string_cat_printf(header, ",H%u", static_cast<unsigned>(hole + 1));
+            }
+            furi_string_cat_str(header, "\r\n");
+            storage_file_write(file, furi_string_get_cstr(header), furi_string_size(header));
+            furi_string_free(header);
+        }
+
+        DateTime datetime;
+        furi_hal_rtc_get_datetime(&datetime);
+
+        char date_buf[16];
+        char time_buf[16];
+        snprintf(date_buf, sizeof(date_buf), "%04u-%02u-%02u", datetime.year, datetime.month, datetime.day);
+        snprintf(time_buf, sizeof(time_buf), "%02u:%02u", datetime.hour, datetime.minute);
+
+        char course_name[GolfScoreCourseNameLength];
+        if (state.activeCourse != InvalidCourseIndex && courseSlotInUse(state.activeCourse))
+        {
+            sanitize_csv_field(state.courses[state.activeCourse].name.data(), course_name, sizeof(course_name));
+        }
+        else
+        {
+            snprintf(course_name, sizeof(course_name), "Custom");
+        }
+
+        for (uint8_t i = 0; i < state.playerCount; ++i)
+        {
+            char player_name[GolfScoreMaxNameLength];
+            sanitize_csv_field(getPlayerName(i), player_name, sizeof(player_name));
+
+            uint16_t total = getTotalScore(i);
+            uint8_t holes_played = getPlayedHoleCount(i);
+            int16_t rel = getRelativeToPar(i);
+
+            char relation[8];
+            if (holes_played == 0)
+            {
+                snprintf(relation, sizeof(relation), "--");
+            }
+            else if (rel > 0)
+            {
+                snprintf(relation, sizeof(relation), "+%d", rel);
+            }
+            else
+            {
+                snprintf(relation, sizeof(relation), "%d", rel);
+            }
+
+            FuriString *row = furi_string_alloc();
+            furi_string_printf(row,
+                               "%s,%s,%s,%u,%s,%u,%s",
+                               date_buf,
+                               time_buf,
+                               course_name,
+                               static_cast<unsigned>(state.holeCount),
+                               player_name,
+                               static_cast<unsigned>(total),
+                               relation);
+
+            for (uint8_t hole = 0; hole < MaxHoles; ++hole)
+            {
+                if (hole < state.holeCount)
+                {
+                    uint8_t strokes = state.strokes[i][hole];
+                    if (strokes > 0)
+                    {
+                        furi_string_cat_printf(row, ",%u", static_cast<unsigned>(strokes));
+                    }
+                    else
+                    {
+                        furi_string_cat_str(row, ",");
+                    }
+                }
+                else
+                {
+                    furi_string_cat_str(row, ",");
+                }
+            }
+
+            furi_string_cat_str(row, "\r\n");
+
+            size_t row_size = furi_string_size(row);
+            if (storage_file_write(file, furi_string_get_cstr(row), row_size) != row_size)
+            {
+                furi_string_free(row);
+                result = false;
+                break;
+            }
+
+            furi_string_free(row);
+            result = true;
+        }
+
+        storage_file_close(file);
+    }
+
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+    return result;
+}
+
+bool GolfScoreApp::clearRoundHistory() const
+{
+    Storage *storage = static_cast<Storage *>(furi_record_open(RECORD_STORAGE));
+    if (!storage)
+    {
+        return false;
+    }
+
+    char path[256];
+    snprintf(path, sizeof(path), STORAGE_EXT_PATH_PREFIX "/apps_data/%s/data/%s", APP_ID, HistoryFileName);
+    bool result = storage_common_remove(storage, path);
+
+    if (!result)
+    {
+        File *file = storage_file_alloc(storage);
+        if (file)
+        {
+            if (storage_file_open(file, path, FSAM_WRITE, FSOM_CREATE_ALWAYS))
+            {
+                storage_file_close(file);
+                result = true;
+            }
+            storage_file_free(file);
+        }
+    }
+
+    furi_record_close(RECORD_STORAGE);
+    return result;
+}
+
+bool GolfScoreApp::readRoundHistory(FuriString *out) const
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    Storage *storage = static_cast<Storage *>(furi_record_open(RECORD_STORAGE));
+    if (!storage)
+    {
+        return false;
+    }
+
+    File *file = storage_file_alloc(storage);
+    if (!file)
+    {
+        furi_record_close(RECORD_STORAGE);
+        return false;
+    }
+
+    char path[256];
+    snprintf(path, sizeof(path), STORAGE_EXT_PATH_PREFIX "/apps_data/%s/data/%s", APP_ID, HistoryFileName);
+
+    bool result = false;
+    if (storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING))
+    {
+        furi_string_reset(out);
+        char buffer[129];
+        size_t read = 0;
+        while ((read = storage_file_read(file, buffer, sizeof(buffer) - 1)) > 0)
+        {
+            buffer[read] = '\0';
+            furi_string_cat_str(out, buffer);
+        }
+        result = furi_string_size(out) > 0;
+        storage_file_close(file);
+    }
+
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+    return result;
 }
 
 void GolfScoreApp::requestCanvasRefresh()
