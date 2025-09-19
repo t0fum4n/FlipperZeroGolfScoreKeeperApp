@@ -116,7 +116,7 @@ void GolfScoreScorecard::updateDraw(Canvas *canvas)
         }
 
         char line[64];
-        snprintf(line, sizeof(line), "%c%-8s H%-2s Tot%-3s %s", highlight ? '>' : ' ', name, holeScore, totalStr, relation);
+        snprintf(line, sizeof(line), "%c%-8s Stk%-2s Tot%-3s %s", highlight ? '>' : ' ', name, holeScore, totalStr, relation);
 
         if (highlight)
         {
