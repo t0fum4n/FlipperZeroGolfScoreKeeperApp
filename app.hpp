@@ -31,7 +31,8 @@ typedef enum
     GolfScoreViewTextInput = 4,
     GolfScoreViewParSettings = 5,
     GolfScoreViewCourseList = 6,
-    GolfScoreViewHistory = 7,
+    GolfScoreViewSplash = 7,
+    GolfScoreViewHistory = 8,
 } GolfScoreView;
 
 class GolfScoreScorecard;
@@ -71,13 +72,23 @@ private:
     std::unique_ptr<GolfScoreSettings> settings;    // Settings view instance
     Submenu *submenu = nullptr;                   // Application submenu
     FuriTimer *timer = nullptr;                   // Viewport refresh timer
+    View *splashView = nullptr;                   // Splash screen view
+    FuriTimer *splashTimer = nullptr;             // Splash screen timer
+    bool splashFinished = false;                  // Splash shown flag
     PersistentState state{};                      // Persisted round data
+    bool roundSaved = false;                      // Tracks if current round already saved
+    std::array<char, 160> summaryBuffer{};
+    bool summaryPending = false;
 
     static uint32_t callbackExitApp(void *context);
     void callbackSubmenuChoices(uint32_t index);
     void createAppDataPath();
     static void submenuChoicesCallback(void *context, uint32_t index);
     static void timerCallback(void *context);
+    static void splashTimerCallback(void *context);
+    static void splashDraw(Canvas *canvas, void *context);
+    static bool splashEventCallback(void *context, uint32_t event);
+    void dismissSplash();
     void applyDefaults();
     void loadState();
     void saveState() const;
@@ -124,6 +135,9 @@ public:
     const char *getCourseName(uint8_t index) const;
     uint8_t getCourseHoleCount(uint8_t index) const;
     uint8_t getActiveCourseIndex() const;
+    bool isRoundComplete() const;
+    bool isRoundSaved() const { return roundSaved; }
+    bool finishRound();
     bool exportRoundHistory() const;
     bool clearRoundHistory() const;
     bool readRoundHistory(FuriString *out) const;

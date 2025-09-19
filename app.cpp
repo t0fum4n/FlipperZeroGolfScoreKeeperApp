@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "splash_screen.h"
 #include "about/about.hpp"
 #include "scorecard/scorecard.hpp"
 #include "settings/settings.hpp"
@@ -17,6 +18,8 @@ namespace
     constexpr uint8_t StateVersion = 2;
     constexpr const char *StateFileName = "state.bin";
     constexpr const char *HistoryFileName = "rounds.csv";
+    constexpr uint32_t SplashEventId = 0xA55AA001;
+    constexpr uint32_t RoundSummaryEventId = 0xA55AA002;
 
     struct PersistentStateV1
     {
@@ -67,6 +70,9 @@ GolfScoreApp::GolfScoreApp()
         return;
     }
 
+    view_dispatcher_set_event_callback_context(viewDispatcher, this);
+    view_dispatcher_set_custom_event_callback(viewDispatcher, splashEventCallback);
+
     if (!easy_flipper_set_submenu(&submenu, GolfScoreViewSubmenu, VERSION_TAG, callbackExitApp, &viewDispatcher))
     {
         FURI_LOG_E(TAG, "Failed to allocate submenu");
@@ -81,11 +87,30 @@ GolfScoreApp::GolfScoreApp()
     applyDefaults();
     loadState();
 
-    view_dispatcher_switch_to_view(viewDispatcher, GolfScoreViewSubmenu);
+    if (!easy_flipper_set_view(&splashView, GolfScoreViewSplash, splashDraw, nullptr, nullptr, &viewDispatcher, this))
+    {
+        splashView = nullptr;
+    }
+
+    splashTimer = furi_timer_alloc(splashTimerCallback, FuriTimerTypeOnce, this);
+    if (splashTimer)
+    {
+        furi_timer_start(splashTimer, furi_ms_to_ticks(2000));
+    }
+
+    view_dispatcher_switch_to_view(viewDispatcher, splashView ? GolfScoreViewSplash : GolfScoreViewSubmenu);
+
+    if (!splashView)
+    {
+        splashFinished = true;
+        view_dispatcher_switch_to_view(viewDispatcher, GolfScoreViewSubmenu);
+    }
 }
 
 GolfScoreApp::~GolfScoreApp()
 {
+    dismissSplash();
+
     if (timer)
     {
         furi_timer_stop(timer);
@@ -233,6 +258,8 @@ void GolfScoreApp::applyDefaults()
     {
         ensureName(i);
     }
+
+    roundSaved = false;
 }
 
 void GolfScoreApp::loadState()
@@ -308,6 +335,8 @@ void GolfScoreApp::loadState()
     {
         ensureName(i);
     }
+
+    roundSaved = false;
 }
 
 void GolfScoreApp::saveState() const
@@ -471,6 +500,97 @@ void GolfScoreApp::timerCallback(void *context)
     }
 }
 
+void GolfScoreApp::splashTimerCallback(void *context)
+{
+    auto *app = static_cast<GolfScoreApp *>(context);
+    if (!app || !app->viewDispatcher)
+    {
+        return;
+    }
+
+    view_dispatcher_send_custom_event(app->viewDispatcher, SplashEventId);
+}
+
+void GolfScoreApp::splashDraw(Canvas *canvas, void *context)
+{
+    UNUSED(context);
+    if (!canvas)
+    {
+        return;
+    }
+
+    canvas_clear(canvas);
+    canvas_draw_xbm(canvas, 0, 0, SPLASH_SCREEN_WIDTH, SPLASH_SCREEN_HEIGHT, SplashScreenBitmap);
+}
+
+bool GolfScoreApp::splashEventCallback(void *context, uint32_t event)
+{
+    auto *app = static_cast<GolfScoreApp *>(context);
+    if (!app)
+    {
+        return false;
+    }
+
+    if (event == SplashEventId)
+    {
+        app->dismissSplash();
+        return true;
+    }
+
+    if (event == RoundSummaryEventId)
+    {
+        if (app->summaryPending)
+        {
+            easy_flipper_dialog("Round Saved", app->summaryBuffer.data());
+            app->summaryPending = false;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+void GolfScoreApp::dismissSplash()
+{
+    if (splashFinished)
+    {
+        if (splashTimer)
+        {
+            furi_timer_stop(splashTimer);
+            furi_timer_free(splashTimer);
+            splashTimer = nullptr;
+        }
+        if (splashView)
+        {
+            view_dispatcher_remove_view(viewDispatcher, GolfScoreViewSplash);
+            view_free(splashView);
+            splashView = nullptr;
+        }
+        return;
+    }
+
+    splashFinished = true;
+
+    if (splashTimer)
+    {
+        furi_timer_stop(splashTimer);
+        furi_timer_free(splashTimer);
+        splashTimer = nullptr;
+    }
+
+    if (viewDispatcher)
+    {
+        view_dispatcher_switch_to_view(viewDispatcher, GolfScoreViewSubmenu);
+    }
+
+    if (splashView)
+    {
+        view_dispatcher_remove_view(viewDispatcher, GolfScoreViewSplash);
+        view_free(splashView);
+        splashView = nullptr;
+    }
+}
+
 void GolfScoreApp::viewPortDraw(Canvas *canvas, void *context)
 {
     auto *app = static_cast<GolfScoreApp *>(context);
@@ -614,6 +734,7 @@ void GolfScoreApp::adjustScore(uint8_t player, uint8_t hole, int8_t delta)
     int value = static_cast<int>(state.strokes[player][hole]);
     value = std::clamp(value + delta, 0, 99);
     state.strokes[player][hole] = static_cast<uint8_t>(value);
+    roundSaved = false;
     saveState();
     requestCanvasRefresh();
 }
@@ -624,6 +745,7 @@ void GolfScoreApp::resetScores()
     {
         scores.fill(0);
     }
+    roundSaved = false;
     saveState();
     requestCanvasRefresh();
 }
@@ -651,6 +773,7 @@ void GolfScoreApp::setPlayerCount(uint8_t count)
     }
 
     state.playerCount = count;
+    roundSaved = false;
     saveState();
     requestCanvasRefresh();
 }
@@ -678,6 +801,7 @@ void GolfScoreApp::setHoleCount(uint8_t count)
     }
 
     state.holeCount = count;
+    roundSaved = false;
     saveState();
     requestCanvasRefresh();
 }
@@ -718,6 +842,7 @@ void GolfScoreApp::setPar(uint8_t hole, uint8_t value)
     }
 
     state.par[hole] = par_value;
+    roundSaved = false;
     saveState();
     requestCanvasRefresh();
 }
@@ -816,6 +941,83 @@ uint8_t GolfScoreApp::getCourseHoleCount(uint8_t index) const
 uint8_t GolfScoreApp::getActiveCourseIndex() const
 {
     return state.activeCourse;
+}
+
+bool GolfScoreApp::isRoundComplete() const
+{
+    for (uint8_t player = 0; player < state.playerCount; ++player)
+    {
+        for (uint8_t hole = 0; hole < state.holeCount; ++hole)
+        {
+            if (state.strokes[player][hole] == 0)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool GolfScoreApp::finishRound()
+{
+    if (!isRoundComplete() || roundSaved)
+    {
+        return false;
+    }
+
+    if (!exportRoundHistory())
+    {
+        return false;
+    }
+
+    roundSaved = true;
+
+    char course_name[GolfScoreCourseNameLength];
+    if (state.activeCourse != InvalidCourseIndex && courseSlotInUse(state.activeCourse))
+    {
+        sanitize_csv_field(state.courses[state.activeCourse].name.data(), course_name, sizeof(course_name));
+    }
+    else
+    {
+        snprintf(course_name, sizeof(course_name), "Custom");
+    }
+
+    summaryBuffer.fill('\0');
+    size_t offset = snprintf(summaryBuffer.data(), summaryBuffer.size(), "Course %s (%u holes)\n", course_name, static_cast<unsigned>(state.holeCount));
+
+    for (uint8_t i = 0; i < state.playerCount && offset < summaryBuffer.size(); ++i)
+    {
+        const char *name = getPlayerName(i);
+        uint16_t total = getTotalScore(i);
+        int16_t rel = getRelativeToPar(i);
+        char relation[8];
+
+        if (rel == 0)
+        {
+            snprintf(relation, sizeof(relation), "E");
+        }
+        else if (rel > 0)
+        {
+            snprintf(relation, sizeof(relation), "+%d", rel);
+        }
+        else
+        {
+            snprintf(relation, sizeof(relation), "%d", rel);
+        }
+
+        offset += snprintf(summaryBuffer.data() + offset, summaryBuffer.size() - offset, "%s %u (%s)\n", name, static_cast<unsigned>(total), relation);
+    }
+
+    summaryPending = true;
+
+    resetScores();
+
+    if (viewDispatcher)
+    {
+        view_dispatcher_send_custom_event(viewDispatcher, RoundSummaryEventId);
+    }
+
+    return true;
 }
 
 bool GolfScoreApp::exportRoundHistory() const

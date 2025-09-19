@@ -25,6 +25,7 @@ Keep golf scores for up to four players on the Flipper Zero.
    - Up/Down change strokes for the highlighted golfer on the current hole.
    - Left/Right move between holes.
    - **OK** switches to the next golfer; long-press **OK** clears that player’s score for the current hole.
+   - Press **Back** once every player has a score on every hole to finish the round, save it to history, and view a summary.
 3. The scorecard line shows `Name  Stk#  Tot##  +/-`:
    - `Stk` displays strokes on the current hole (or `--` if none yet).
    - `Tot` is the total strokes across all played holes.

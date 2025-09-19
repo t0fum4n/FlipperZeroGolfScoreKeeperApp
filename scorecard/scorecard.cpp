@@ -192,8 +192,15 @@ void GolfScoreScorecard::updateInput(InputEvent *event)
             break;
         }
         case InputKeyBack:
-            shouldReturnToMenu = true;
-            break;
+        if (app->isRoundComplete() && !app->isRoundSaved())
+        {
+            if (!app->finishRound())
+            {
+                easy_flipper_dialog("Round", "Unable to save round.");
+            }
+        }
+        shouldReturnToMenu = true;
+        break;
         default:
             break;
         }
