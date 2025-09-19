@@ -14,10 +14,13 @@ typedef enum
     SettingsViewHoles = 1,
     SettingsViewReset = 2,
     SettingsViewPars = 3,
-    SettingsViewPlayerName1 = 4,
-    SettingsViewPlayerName2 = 5,
-    SettingsViewPlayerName3 = 6,
-    SettingsViewPlayerName4 = 7,
+    SettingsViewLoadCourse = 4,
+    SettingsViewSaveCourse = 5,
+    SettingsViewDeleteCourse = 6,
+    SettingsViewPlayerName1 = 7,
+    SettingsViewPlayerName2 = 8,
+    SettingsViewPlayerName3 = 9,
+    SettingsViewPlayerName4 = 10,
 } SettingsViewChoice;
 
 class GolfScoreSettings
@@ -37,10 +40,15 @@ private:
     VariableItem *variable_item_hole_count = nullptr;
     VariableItem *variable_item_reset = nullptr;
     VariableItem *variable_item_par_overview = nullptr;
+    VariableItem *variable_item_load_course = nullptr;
+    VariableItem *variable_item_save_course = nullptr;
+    VariableItem *variable_item_delete_course = nullptr;
     VariableItemList *par_variable_item_list = nullptr;
     VariableItem *par_item_hole_selector = nullptr;
     VariableItem *par_item_value = nullptr;
+    VariableItemList *course_variable_item_list = nullptr;
     std::array<VariableItem *, GolfScoreMaxPlayers> variable_item_player_names{};
+    std::array<VariableItem *, GolfScoreMaxCourses> course_items{};
     struct ParItemContext
     {
         GolfScoreSettings *settings = nullptr;
@@ -52,10 +60,19 @@ private:
     std::array<char, 32> par_summary_text{};
     static constexpr uint8_t HoleParOptionCount = GolfScoreMaxPar - GolfScoreMinPar + 1;
     bool suppress_par_updates = false;
+    enum class CourseSelectionMode
+    {
+        Load,
+        Save,
+        Delete,
+    };
+    CourseSelectionMode course_selection_mode = CourseSelectionMode::Load;
+    uint8_t pending_course_slot = 0;
     ViewDispatcher **view_dispatcher_ref;
 
     static uint32_t callbackToSubmenu(void *context);
     static uint32_t callbackToSettings(void *context);
+    static uint32_t callbackToCourseList(void *context);
     void freeTextInput();
     bool initTextInput(uint32_t view);
     static void settingsItemSelectedCallback(void *context, uint32_t index);
@@ -64,6 +81,9 @@ private:
     void refreshValueTexts();
     void refreshParValues();
     bool ensureParList();
+    bool ensureCourseList();
+    void startCourseSelection(CourseSelectionMode mode);
+    void updateCourseListDisplay();
     static void textUpdatedPlayer0Callback(void *context);
     static void textUpdatedPlayer1Callback(void *context);
     static void textUpdatedPlayer2Callback(void *context);
@@ -73,6 +93,11 @@ private:
     static void parValueChangedCallback(VariableItem *item);
     void parHoleSelectorChanged(VariableItem *item);
     void parValueChanged(VariableItem *item);
+    static void courseItemSelectedCallback(void *context, uint32_t index);
+    void courseItemSelected(uint32_t index);
+    bool startCourseNameInput(uint8_t slot);
+    static void textUpdatedCourseCallback(void *context);
+    void textUpdatedCourseName();
     void updateParSummary();
     uint8_t parToIndex(uint8_t par) const;
     uint8_t indexToPar(uint8_t index) const;

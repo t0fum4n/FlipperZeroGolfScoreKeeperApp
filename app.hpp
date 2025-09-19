@@ -28,6 +28,7 @@ typedef enum
     GolfScoreViewSettings = 3,
     GolfScoreViewTextInput = 4,
     GolfScoreViewParSettings = 5,
+    GolfScoreViewCourseList = 6,
 } GolfScoreView;
 
 class GolfScoreScorecard;
@@ -42,6 +43,13 @@ public:
     static constexpr size_t MaxNameLength = GolfScoreMaxNameLength;
 
 private:
+    struct CoursePreset
+    {
+        uint8_t holeCount = 0;
+        std::array<uint8_t, MaxHoles> par{};
+        std::array<char, GolfScoreCourseNameLength> name{};
+    };
+
     struct PersistentState
     {
         uint8_t version = 0;
@@ -51,6 +59,8 @@ private:
         std::array<std::array<char, MaxNameLength>, MaxPlayers> playerNames{};
         std::array<std::array<uint8_t, MaxHoles>, MaxPlayers> strokes{};
         std::array<uint8_t, MaxHoles> par{};
+        std::array<CoursePreset, GolfScoreMaxCourses> courses{};
+        uint8_t activeCourse = 0xFF;
     };
 
     std::unique_ptr<GolfScoreAbout> about;          // About view instance
@@ -73,6 +83,8 @@ private:
     bool readStateFromFile(PersistentState &data) const;
 
 public:
+    static constexpr uint8_t InvalidCourseIndex = 0xFF;
+
     GolfScoreApp();
     ~GolfScoreApp();
 
@@ -102,5 +114,12 @@ public:
     void setHoleCount(uint8_t count);
     void setPlayerName(uint8_t index, const char *name);
     void setPar(uint8_t hole, uint8_t value);
+    bool saveCoursePreset(uint8_t index, const char *name);
+    bool deleteCoursePreset(uint8_t index);
+    void applyCoursePreset(uint8_t index);
+    bool courseSlotInUse(uint8_t index) const;
+    const char *getCourseName(uint8_t index) const;
+    uint8_t getCourseHoleCount(uint8_t index) const;
+    uint8_t getActiveCourseIndex() const;
     void requestCanvasRefresh();
 };

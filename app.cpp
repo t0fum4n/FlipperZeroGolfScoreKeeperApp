@@ -11,8 +11,19 @@
 
 namespace
 {
-    constexpr uint8_t StateVersion = 1;
+    constexpr uint8_t StateVersion = 2;
     constexpr const char *StateFileName = "state.bin";
+
+    struct PersistentStateV1
+    {
+        uint8_t version = 0;
+        uint8_t playerCount = 1;
+        uint8_t holeCount = 9;
+        uint8_t reserved = 0;
+        std::array<std::array<char, GolfScoreApp::MaxNameLength>, GolfScoreApp::MaxPlayers> playerNames{};
+        std::array<std::array<uint8_t, GolfScoreApp::MaxHoles>, GolfScoreApp::MaxPlayers> strokes{};
+        std::array<uint8_t, GolfScoreApp::MaxHoles> par{};
+    };
 }
 
 GolfScoreApp::GolfScoreApp()
@@ -178,6 +189,15 @@ void GolfScoreApp::applyDefaults()
 
     state.par.fill(GolfScoreDefaultPar);
 
+    for (auto &course : state.courses)
+    {
+        course.holeCount = 0;
+        course.par.fill(0);
+        course.name.fill('\0');
+    }
+
+    state.activeCourse = InvalidCourseIndex;
+
     for (uint8_t i = 0; i < MaxPlayers; ++i)
     {
         ensureName(i);
@@ -218,6 +238,39 @@ void GolfScoreApp::loadState()
         {
             state.par[hole] = GolfScoreDefaultPar;
         }
+    }
+
+    for (size_t courseIndex = 0; courseIndex < state.courses.size(); ++courseIndex)
+    {
+        auto &course = state.courses[courseIndex];
+        if (course.holeCount < 1 || course.holeCount > MaxHoles)
+        {
+            course.holeCount = 0;
+        }
+
+        for (size_t hole = 0; hole < MaxHoles; ++hole)
+        {
+            uint8_t par = course.par[hole];
+            if (par < GolfScoreMinPar || par > GolfScoreMaxPar)
+            {
+                course.par[hole] = GolfScoreDefaultPar;
+            }
+        }
+
+        if (course.holeCount == 0)
+        {
+            course.par.fill(0);
+            course.name.fill('\0');
+        }
+        else if (course.name[0] == '\0')
+        {
+            snprintf(course.name.data(), course.name.size(), "Course %u", static_cast<unsigned>(courseIndex + 1));
+        }
+    }
+
+    if (state.activeCourse >= GolfScoreMaxCourses || !courseSlotInUse(state.activeCourse))
+    {
+        state.activeCourse = InvalidCourseIndex;
     }
 
     for (uint8_t i = 0; i < MaxPlayers; ++i)
@@ -285,7 +338,34 @@ bool GolfScoreApp::readStateFromFile(PersistentState &data) const
     bool result = false;
     if (storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING))
     {
-        result = storage_file_read(file, &data, sizeof(PersistentState)) == sizeof(PersistentState);
+        if (storage_file_read(file, &data, sizeof(PersistentState)) == sizeof(PersistentState))
+        {
+            result = true;
+        }
+        else
+        {
+            storage_file_seek(file, 0, true);
+            PersistentStateV1 legacy{};
+            if (storage_file_read(file, &legacy, sizeof(PersistentStateV1)) == sizeof(PersistentStateV1))
+            {
+                data = PersistentState{};
+                data.version = StateVersion;
+                data.playerCount = legacy.playerCount;
+                data.holeCount = legacy.holeCount;
+                data.reserved = 0;
+                data.playerNames = legacy.playerNames;
+                data.strokes = legacy.strokes;
+                data.par = legacy.par;
+                for (auto &course : data.courses)
+                {
+                    course.holeCount = 0;
+                    course.par.fill(0);
+                    course.name.fill('\0');
+                }
+                data.activeCourse = InvalidCourseIndex;
+                result = true;
+            }
+        }
         storage_file_close(file);
     }
 
@@ -609,6 +689,102 @@ void GolfScoreApp::setPar(uint8_t hole, uint8_t value)
     state.par[hole] = par_value;
     saveState();
     requestCanvasRefresh();
+}
+
+bool GolfScoreApp::saveCoursePreset(uint8_t index, const char *name)
+{
+    if (index >= GolfScoreMaxCourses)
+    {
+        return false;
+    }
+
+    auto &preset = state.courses[index];
+    preset.holeCount = std::clamp<uint8_t>(state.holeCount, 1, MaxHoles);
+    preset.par = state.par;
+    preset.name.fill('\0');
+
+    if (name && name[0] != '\0')
+    {
+        snprintf(preset.name.data(), preset.name.size(), "%s", name);
+    }
+    else
+    {
+        snprintf(preset.name.data(), preset.name.size(), "Course %u", static_cast<unsigned>(index + 1));
+    }
+
+    state.activeCourse = index;
+    saveState();
+    return true;
+}
+
+bool GolfScoreApp::deleteCoursePreset(uint8_t index)
+{
+    if (index >= GolfScoreMaxCourses)
+    {
+        return false;
+    }
+
+    auto &preset = state.courses[index];
+    preset.holeCount = 0;
+    preset.par.fill(0);
+    preset.name.fill('\0');
+
+    if (state.activeCourse == index)
+    {
+        state.activeCourse = InvalidCourseIndex;
+    }
+
+    saveState();
+    return true;
+}
+
+void GolfScoreApp::applyCoursePreset(uint8_t index)
+{
+    if (!courseSlotInUse(index))
+    {
+        return;
+    }
+
+    const auto &preset = state.courses[index];
+    state.holeCount = std::clamp<uint8_t>(preset.holeCount, 1, MaxHoles);
+    state.par = preset.par;
+    state.activeCourse = index;
+    resetScores();
+}
+
+bool GolfScoreApp::courseSlotInUse(uint8_t index) const
+{
+    if (index >= GolfScoreMaxCourses)
+    {
+        return false;
+    }
+
+    const auto &preset = state.courses[index];
+    return preset.holeCount >= 1 && preset.holeCount <= MaxHoles;
+}
+
+const char *GolfScoreApp::getCourseName(uint8_t index) const
+{
+    if (!courseSlotInUse(index))
+    {
+        static const char empty[] = "";
+        return empty;
+    }
+    return state.courses[index].name.data();
+}
+
+uint8_t GolfScoreApp::getCourseHoleCount(uint8_t index) const
+{
+    if (!courseSlotInUse(index))
+    {
+        return 0;
+    }
+    return state.courses[index].holeCount;
+}
+
+uint8_t GolfScoreApp::getActiveCourseIndex() const
+{
+    return state.activeCourse;
 }
 
 void GolfScoreApp::requestCanvasRefresh()
